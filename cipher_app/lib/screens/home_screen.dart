@@ -1,5 +1,8 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
+import 'package:file_picker/file_picker.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -12,6 +15,12 @@ class _HomeScreenState extends State<HomeScreen> {
   int _selectedServerIndex = 0;
   int _selectedChatIndex = -1;
   String _myUsername = '';
+  bool _isReady = false;
+
+  final TextEditingController _chatController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
+  bool _isEmojiVisible = false;
+  String? _selectedFileName;
 
   @override
   void initState() {
@@ -23,40 +32,89 @@ class _HomeScreenState extends State<HomeScreen> {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
       _myUsername = prefs.getString('username') ?? 'Unknown';
+      _isReady = true;
     });
   }
 
   final List<String> dummyServers = ['D', 'G', 'C'];
   
-  // Dynamic dummy data structure with full message history
   final List<Map<String, dynamic>> allDummyChats = [
     {
       'name': 'Alice', 
       'messages': [
-        {'text': "Hey Alice! How's it going?", 'isMe': true},
-        {'text': "Hi! I'm doing great, just testing Cipher.", 'isMe': false},
+        {'text': "Hey Alice! How's it going?", 'isMe': true, 'file': null},
+        {'text': "Hi! I'm doing great, just testing Cipher.", 'isMe': false, 'file': null},
       ]
     },
     {
       'name': 'Bob', 
       'messages': [
-        {'text': "Did you see the new update?", 'isMe': false},
-        {'text': "Yeah, the new glassmorphism UI looks insanely good.", 'isMe': true},
-        {'text': "Agreed!", 'isMe': false},
+        {'text': "Did you see the new update?", 'isMe': false, 'file': null},
+        {'text': "Yeah, the new glassmorphism UI looks insanely good.", 'isMe': true, 'file': null},
+        {'text': "Agreed!", 'isMe': false, 'file': null},
       ]
     },
     {
       'name': 'Charlie', 
       'messages': [
-        {'text': "Meeting at 5?", 'isMe': false},
-        {'text': "Make it 5:30.", 'isMe': true},
+        {'text': "Meeting at 5?", 'isMe': false, 'file': null},
+        {'text': "Make it 5:30.", 'isMe': true, 'file': null},
       ]
     },
   ];
 
-  // Prevent talking to yourself by filtering out your own username
   List<Map<String, dynamic>> get _filteredChats {
     return allDummyChats.where((chat) => chat['name'] != _myUsername).toList();
+  }
+
+  void _pickFile() async {
+    FilePickerResult? result = await FilePicker.platform.pickFiles();
+
+    if (result != null) {
+      setState(() {
+        _selectedFileName = result.files.single.name;
+      });
+    }
+  }
+
+  void _sendMessage() {
+    if (_chatController.text.trim().isEmpty && _selectedFileName == null) return;
+    
+    final chats = _filteredChats;
+    if (_selectedChatIndex == -1 || _selectedChatIndex >= chats.length) return;
+
+    // We must find the actual chat object in allDummyChats so we mutate the original state
+    final targetChatName = chats[_selectedChatIndex]['name'];
+    final actualChatIndex = allDummyChats.indexWhere((c) => c['name'] == targetChatName);
+
+    setState(() {
+      allDummyChats[actualChatIndex]['messages'].add({
+        'text': _chatController.text.trim(),
+        'isMe': true,
+        'file': _selectedFileName,
+      });
+      _chatController.clear();
+      _selectedFileName = null;
+      if (_isEmojiVisible) _isEmojiVisible = false;
+    });
+
+    // Auto-scroll to bottom
+    Future.delayed(const Duration(milliseconds: 100), () {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
+  void _toggleEmojiPicker() {
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() {
+      _isEmojiVisible = !_isEmojiVisible;
+    });
   }
 
   Widget _buildSidebar() {
@@ -158,6 +216,9 @@ class _HomeScreenState extends State<HomeScreen> {
               itemBuilder: (context, index) {
                 bool isSelected = _selectedChatIndex == index;
                 String lastMsg = chats[index]['messages'].last['text'];
+                if (lastMsg.isEmpty && chats[index]['messages'].last['file'] != null) {
+                  lastMsg = '📎 ${chats[index]['messages'].last['file']}';
+                }
                 return Container(
                   margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                   decoration: BoxDecoration(
@@ -224,40 +285,82 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(width: 8),
                 Text(chatName, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
                 const Spacer(),
-                const Icon(Icons.call, color: Colors.white54),
-                const SizedBox(width: 16),
-                const Icon(Icons.videocam, color: Colors.white54),
+                IconButton(
+                  icon: const Icon(Icons.call, color: Colors.white54),
+                  onPressed: () => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Calling $chatName...'))),
+                  tooltip: 'Voice Call',
+                ),
+                IconButton(
+                  icon: const Icon(Icons.videocam, color: Colors.white54),
+                  onPressed: () => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Starting video call with $chatName...'))),
+                  tooltip: 'Video Call',
+                ),
               ],
             ),
           ),
           // Chat Messages
           Expanded(
             child: ListView.builder(
+              controller: _scrollController,
               padding: const EdgeInsets.all(24),
               itemCount: messages.length,
               itemBuilder: (context, index) {
                 final msg = messages[index];
-                return _buildMessageBubble(msg['text'], isMe: msg['isMe']);
+                return _buildMessageBubble(msg['text'], isMe: msg['isMe'], fileName: msg['file']);
               },
             ),
           ),
+          // File Preview Pill
+          if (_selectedFileName != null)
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1E1F22),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.white12),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.insert_drive_file, color: Color(0xFF5865F2), size: 20),
+                  const SizedBox(width: 8),
+                  Text(
+                    _selectedFileName!,
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(width: 8),
+                  InkWell(
+                    onTap: () => setState(() => _selectedFileName = null),
+                    child: const Icon(Icons.close, color: Colors.white54, size: 18),
+                  )
+                ],
+              ),
+            ),
           // Chat Input Area
           Container(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.only(left: 20, right: 20, bottom: 20, top: 4),
             child: Row(
               children: [
                 IconButton(
                   icon: const Icon(Icons.add_circle_outline, color: Colors.white54),
-                  onPressed: () {},
+                  onPressed: _pickFile,
                   tooltip: 'Share File',
                 ),
                 IconButton(
                   icon: const Icon(Icons.emoji_emotions_outlined, color: Colors.white54),
-                  onPressed: () {},
+                  onPressed: _toggleEmojiPicker,
                   tooltip: 'Emojis',
                 ),
                 Expanded(
                   child: TextField(
+                    controller: _chatController,
+                    onTap: () {
+                      if (_isEmojiVisible) setState(() => _isEmojiVisible = false);
+                    },
+                    onSubmitted: (_) => _sendMessage(),
                     style: const TextStyle(color: Colors.white),
                     decoration: InputDecoration(
                       hintText: 'Message @$chatName',
@@ -269,13 +372,16 @@ class _HomeScreenState extends State<HomeScreen> {
                         borderSide: BorderSide.none,
                       ),
                       contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                      suffixIcon: Container(
-                        margin: const EdgeInsets.all(4),
-                        decoration: const BoxDecoration(
-                          color: Color(0xFF5865F2),
-                          shape: BoxShape.circle,
+                      suffixIcon: GestureDetector(
+                        onTap: _sendMessage,
+                        child: Container(
+                          margin: const EdgeInsets.all(4),
+                          decoration: const BoxDecoration(
+                            color: Color(0xFF5865F2),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.send, color: Colors.white, size: 20),
                         ),
-                        child: const Icon(Icons.send, color: Colors.white, size: 20),
                       ),
                     ),
                   ),
@@ -283,12 +389,38 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
           ),
+          // Emoji Picker Drawer
+          if (_isEmojiVisible)
+            SizedBox(
+              height: 250,
+              child: EmojiPicker(
+                onEmojiSelected: (category, emoji) {
+                  _chatController.text = _chatController.text + emoji.emoji;
+                },
+                config: const Config(
+                  emojiViewConfig: EmojiViewConfig(
+                    backgroundColor: Color(0xFF2B2D31),
+                    columns: 10,
+                  ),
+                  categoryViewConfig: CategoryViewConfig(
+                    backgroundColor: Color(0xFF1E1F22),
+                    indicatorColor: Color(0xFF5865F2),
+                    iconColorSelected: Color(0xFF5865F2),
+                  ),
+                  bottomActionBarConfig: BottomActionBarConfig(
+                    backgroundColor: Color(0xFF1E1F22),
+                    buttonColor: Color(0xFF1E1F22),
+                    buttonIconColor: Colors.white,
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
   }
 
-  Widget _buildMessageBubble(String text, {required bool isMe}) {
+  Widget _buildMessageBubble(String text, {required bool isMe, String? fileName}) {
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: Row(
@@ -298,7 +430,7 @@ class _HomeScreenState extends State<HomeScreen> {
           if (isMe) 
             IconButton(
               icon: const Icon(Icons.shortcut, color: Colors.white38, size: 20),
-              onPressed: () {},
+              onPressed: () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Forwarding message...'))),
               tooltip: 'Forward',
             ),
           Flexible(
@@ -317,13 +449,36 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 2))],
               ),
-              child: Text(text, style: const TextStyle(color: Colors.white, fontSize: 15)),
+              child: Column(
+                crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                children: [
+                  if (fileName != null)
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 4),
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.black26,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.insert_drive_file, color: Colors.white70, size: 18),
+                          const SizedBox(width: 6),
+                          Text(fileName, style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.bold, fontSize: 13)),
+                        ],
+                      ),
+                    ),
+                  if (text.isNotEmpty)
+                    Text(text, style: const TextStyle(color: Colors.white, fontSize: 15)),
+                ],
+              ),
             ),
           ),
           if (!isMe)
             IconButton(
               icon: const Icon(Icons.shortcut, color: Colors.white38, size: 20),
-              onPressed: () {},
+              onPressed: () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Forwarding message...'))),
               tooltip: 'Forward',
             ),
         ],
@@ -333,6 +488,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (!_isReady) {
+      return const Scaffold(
+        backgroundColor: Color(0xFF1E1F22),
+        body: Center(child: CircularProgressIndicator(color: Color(0xFF5865F2))),
+      );
+    }
+
     return Scaffold(
       body: Row(
         children: [
