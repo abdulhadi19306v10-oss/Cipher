@@ -54,11 +54,12 @@ cover/
 *.mo
 *.pot
 
-# Django stuff:
+# Django stuff / databases
 *.log
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
+*.db
 
 # Sphinx documentation
 doc/_build/
