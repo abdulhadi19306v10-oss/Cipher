@@ -1,121 +1,88 @@
-# 💬 Cipher - Real-Time Chat & VoIP Calling System
+# 💬 Cipher - Secure Worldwide Communication Platform
 
-Cipher is a premium, lightweight real-time communication application built from the ground up in Python using raw sockets and Tkinter. It implements custom multi-threaded TCP protocols for state management, messaging, and call handshakes, alongside high-performance UDP media relays for low-latency voice and video calls.
-
----
-
-## 👥 Contributors
-
-| Name | Roll Number |
-| :--- | :--- |
-| **Abdul Hadi** | 2025(s)-SE-5 |
-| **Muhammad Irfan Shoukat** | 2025(s)-SE-4 |
-| **Bilal Ahmad** | 2025(s)-SE-23 |
+Cipher is a premium, cross-platform real-time communication application featuring a hybrid modern architecture. Designed with a seamless Discord and WhatsApp fusion UI, it is built to handle highly secure, globally accessible messaging and VoIP calls.
 
 ---
 
 ## 🚀 Key Features
 
-*   **Real-time Text Messaging**: Seamless instant messaging for private (one-on-one) and group chats.
-*   **Dynamic Group Management**: Create, join, leave, or delete chat groups dynamically.
-*   **Voice & Video Calls**: P2P-style voice and video calls powered by PyAudio and OpenCV, using UDP transport with MTU optimizations.
-*   **Custom Application Protocol**: Reliable packet framing using a 4-byte big-endian length prefix to prevent message boundaries from splitting over TCP.
-*   **Modern Tkinter UI**: Custom dark and light modes with smooth transitions, interactive hover states, typing indicators, and message counters.
-*   **Desktop Integrations**: Native Windows toast notifications using `win11toast` and audio alerts using `winsound`.
-*   **Thread-Safe Networking**: Guarded send/receive socket operations with mutexes to prevent packet interleaving.
+*   **Cross-Platform UI**: Beautiful, responsive Flutter frontend running natively on Windows, macOS, Android, and iOS.
+*   **Discord/WhatsApp Fusion**: Features a left-side server/community navigation bar with clean, modern chat bubbles.
+*   **End-to-End Encryption (E2EE)**: Complete privacy using AES-256 and RSA cryptography to ensure messages are completely secure worldwide.
+*   **Unique QR Friend System**: Every user receives a unique QR code upon registration. Adding friends is as simple as scanning their code with your device camera.
+*   **Advanced Anti-Alt Security**: Strict IP rate-limiting, device fingerprinting, and strict email verification prevent network spam and alternate account abuse.
+*   **High-Performance Backend**: A hybrid backend powered by FastAPI (for rapid REST authentication) alongside a custom multi-threaded Python TCP/UDP socket server for zero-latency real-time chat and media relaying.
 
 ---
 
-## 🏗️ Architecture & Protocol Design
+## 🏗️ Architecture Design
 
-Cipher utilizes a hybrid TCP/UDP architecture to balance reliability and speed:
+Cipher utilizes a split-stack architecture to balance standard web scalability with the raw speed of direct socket connections:
 
 ```
                   ┌──────────────────────────────┐
-                  │        Cipher Server        │
-                  │  (HOST: 0.0.0.0, PORT: 5000) │
+                  │    Cipher Cloud Backend      │
+                  │  (FastAPI: 8000, TCP: 5000)  │
                   └──────────────┬───────────────┘
                                  │
-            ┌────────────────────┴────────────────────┐
-      TCP (Control & Text)                       UDP (A/V Media)
-            │                                         │
- ┌──────────▼──────────┐                   ┌──────────▼──────────┐
- │  • Registration     │                   │  • Audio Packets    │
- │  • Text Messaging   │                   │  • Video Frames     │
- │  • Group Management │                   │  • UDP Registration │
- │  • Call Handshakes  │                   │  • Media Relay      │
- └─────────────────────┘                   └─────────────────────┘
+             ┌───────────────────┴───────────────────┐
+       REST (Auth/QR)                          TCP/UDP (Real-Time)
+             │                                       │
+  ┌──────────▼──────────┐                 ┌──────────▼──────────┐
+  │  • PostgreSQL DB    │                 │  • End-to-End Enc.  │
+  │  • User/QR Auth     │                 │  • 4-byte Framing   │
+  │  • Anti-Alt System  │                 │  • VoIP/Video Relay │
+  └─────────────────────┘                 └─────────────────────┘
 ```
 
-### 1. TCP Message Framing Protocol
-To prevent TCP stream fragmentation (where multiple messages merge or split over the network buffer), Cipher uses a custom message framing mechanism:
-*   **Header**: A 4-byte big-endian unsigned integer indicating the length of the payload.
-*   **Payload**: A JSON-encoded dictionary representing the message type and contents.
+### 1. The FastAPI Authentication Layer
+User registration, login, and friend-adding operations are routed through a modern FastAPI server hooked into a **PostgreSQL** database. This ensures strict relational data integrity and allows for secure `bcrypt` password hashing.
 
-### 2. Low-Latency UDP Media Stream
-Voice and video data is streamed over UDP to eliminate the overhead of TCP handshakes and retransmissions:
-*   **Audio Optimization**: PyAudio samples at 16kHz in mono (16-bit format). Audio is sliced into small 256-frame chunks, creating packets small enough to bypass ISP router MTU limits and avoid packet fragmentation.
-*   **Video Encoding**: OpenCV captures video frames, compresses them as JPEG, encodes them into Base64, and relays them through the server to the destination client.
-*   **Echo & Loopback Control**: The UDP server implements hardware-level source validation and loopback blocks, preventing echo feedback loops.
+### 2. Custom TCP Message Framing
+For real-time chat, the Flutter client opens a raw `dart:io` socket directly to the Python backend. To prevent TCP stream fragmentation across the global internet, Cipher uses a custom message framing mechanism:
+*   **Header**: A 4-byte big-endian unsigned integer indicating the length of the payload.
+*   **Payload**: An AES-encrypted JSON string containing the message.
 
 ---
 
-## 📂 Project Directory Structure
+## 📂 Project Structure
 
-Here are the key files inside the project workspace:
-
-*   📁 **[chat_server.py](file:///c:/Users/Abdul%20Hadi/Desktop/Uni%20projects/CN/CN%20project/chat_server.py)**: The main multi-threaded TCP & UDP server responsible for client registration, group routing, and UDP media relaying.
-*   📁 **[chat_client.py](file:///c:/Users/Abdul%20Hadi/Desktop/Uni%20projects/CN/CN%20project/chat_client.py)**: The desktop client containing the Tkinter GUI, pyaudio recording/playback loop, and opencv camera capture thread.
-*   📁 **[requirements.txt](file:///c:/Users/Abdul%20Hadi/Desktop/Uni%20projects/CN/CN%20project/requirements.txt)**: List of third-party python dependencies for audio, video, image rendering, and notifications.
-*   📁 **[.gitignore](file:///c:/Users/Abdul%20Hadi/Desktop/Uni%20projects/CN/CN%20project/.gitignore)**: Standard Git configuration for ignoring temporary local files, cache, and server databases.
-*   📁 **[run_server.bat](file:///c:/Users/Abdul%20Hadi/Desktop/Uni%20projects/CN/CN%20project/run_server.bat)**: Shortcut batch script to boot up the Cipher server on Windows.
-*   📁 **[run_client.bat](file:///c:/Users/Abdul%20Hadi/Desktop/Uni%20projects/CN/CN%20project/run_client.bat)**: Shortcut batch script to launch a client window on Windows.
+*   📁 **[api/](api/)**: The FastAPI backend containing database configurations, SQLAlchemy models, and REST endpoints.
+*   📁 **[cipher_app/](cipher_app/)**: The complete Flutter frontend project, containing the Dart UI, themes, API services, and socket implementations.
+*   📁 **[chat_server.py](chat_server.py)**: The legacy multi-threaded TCP & UDP real-time server.
+*   📁 **[Dockerfile](Dockerfile)**: Cloud-ready deployment configuration to launch both the API and Socket servers simultaneously.
 
 ---
 
 ## 🛠️ Getting Started
 
 ### 📋 Prerequisites
-Make sure you have **Python 3.8+** installed. You will also need a microphone and webcam to utilize voice/video features.
+*   **Backend**: Python 3.11+, PostgreSQL (or SQLite for local testing).
+*   **Frontend**: Flutter SDK (3.2.0+).
 
-### 1. Install Dependencies
-Open your terminal inside the project directory and run:
+### 1. Running the Backend
+Install the backend dependencies:
 ```bash
 pip install -r requirements.txt
 ```
-
-> [!NOTE]
-> On some Linux platforms, you may need to install `portaudio19-dev` before installing PyAudio. On Windows, PyAudio installs directly via pip.
-
-### 2. Running the Server
-To start the central server, double-click **`run_server.bat`** or run in your terminal:
+Launch the REST API:
+```bash
+uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
+```
+Launch the Socket Server (in a new terminal):
 ```bash
 python chat_server.py
 ```
-Upon startup, the server will output its local IP address (e.g., `192.168.1.100`), which client machines can use to connect over LAN/Wi-Fi.
 
-### 3. Running the Client
-To launch a new client instance, double-click **`run_client.bat`** or run:
+### 2. Running the Frontend
+Navigate into the Flutter project and fetch the dependencies:
 ```bash
-python chat_client.py
+cd cipher_app
+flutter pub get
 ```
-
----
-
-## 💬 Usage Guide
-
-1.  **Connection Screen**: Enter the Server IP (use `127.0.0.1` if running client and server on the same machine, or the server's local LAN IP if connecting across multiple computers). Choose a unique username and click **Connect**.
-2.  **Private Chat**: Select any online user from the sidebar list to start a private conversation.
-3.  **Group Chat**: Click the **`+`** icon on the sidebar header to create a new group. Other users can join the group by clicking **`+ Join Group`** in their Groups tab.
-4.  **Voice & Video Calls**: Open a private chat window with another user and click **Call** (voice call) or **Video** (video call). The receiver will receive a ringing popup to Accept or Reject.
-5.  **Themes**: Click the **`L` / `D`** button in the sidebar header to toggle between Light and Dark themes.
-
----
-
-## ⚙️ Technical Environment Settings
-*   **TCP Control Port**: `5000`
-*   **UDP Media Port**: `5000`
-*   **Default Audio Sample Rate**: `16000 Hz`
-*   **Local Video Stream Resolution**: `320 x 180` (Downscaled to preserve bandwidth)
-*   **Remote Video Stream Resolution**: `854 x 480`
-
+Run on Desktop or Mobile:
+```bash
+flutter run -d windows
+# or
+flutter run
+```
