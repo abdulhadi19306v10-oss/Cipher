@@ -77,4 +77,41 @@ class ApiService {
       return {'success': false, 'message': 'Network Error: Cannot connect to server.'};
     }
   }
+
+  static Future<Map<String, dynamic>> addFriendByUsername(int userId, String username) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/add_friend?user_id=$userId&target_identifier=${Uri.encodeComponent(username)}&by_qr=false'),
+      );
+      if (response.statusCode == 200) {
+        return {'success': true};
+      } else {
+        return {'success': false, 'message': jsonDecode(response.body)['detail']};
+      }
+    } catch (e) {
+      return {'success': false, 'message': 'Network Error: Cannot connect to server.'};
+    }
+  }
+
+  static Future<Map<String, dynamic>> getFriends(int userId) async {
+    try {
+      final response = await http.get(Uri.parse('$baseUrl/friends?user_id=$userId'));
+      if (response.statusCode == 200) {
+        return {'success': true, ...jsonDecode(response.body) as Map<String, dynamic>};
+      } else {
+        return {'success': false, 'pending': [], 'accepted': []};
+      }
+    } catch (e) {
+      return {'success': false, 'pending': [], 'accepted': []};
+    }
+  }
+
+  static Future<void> respondToFriendRequest(int userId, int friendshipId, String action) async {
+    try {
+      await http.patch(
+        Uri.parse('$baseUrl/friends/$friendshipId?action=$action&user_id=$userId'),
+      );
+    } catch (_) {}
+  }
 }
+

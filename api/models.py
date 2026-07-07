@@ -34,3 +34,18 @@ class Friendship(Base):
 
     user = relationship("User", foreign_keys=[user_id], back_populates="friends_added")
     friend = relationship("User", foreign_keys=[friend_id], back_populates="friends_of")
+
+
+class OfflineMessage(Base):
+    """Messages queued for offline users — delivered when they reconnect."""
+    __tablename__ = "offline_messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    sender_username = Column(String(50), nullable=False)
+    receiver_username = Column(String(50), nullable=False, index=True)
+    content = Column(String(4096), default="")
+    content_type = Column(String(20), default="text")
+    filename = Column(String(255), nullable=True)
+    delivered = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+

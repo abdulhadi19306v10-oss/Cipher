@@ -10,6 +10,7 @@ import json
 import os
 import time
 import tempfile
+import requests  # for offline message queue API calls
 from datetime import datetime
 from typing import Dict, List, Optional
 import struct
@@ -17,6 +18,7 @@ import struct
 HOST = '0.0.0.0'
 PORT = 5000
 BUFFER_SIZE = 65536
+API_BASE = 'http://127.0.0.1:8000/api'  # internal API base
 
 
 class ChatServer:
@@ -145,6 +147,7 @@ class ChatServer:
             self.send_msg(sock, {'type': 'registered', 'username': username})
             self.broadcast_users()
             self.send_groups(sock)
+            self._deliver_offline_messages(username, sock)
             
             while self.running:
                 msg = self.recv_msg(sock)
@@ -163,7 +166,25 @@ class ChatServer:
                 sock.close()
             except:
                 pass
-                
+
+    def _deliver_offline_messages(self, username: str, sock):
+        """Fetch queued messages from API and push to newly connected client."""
+        try:
+            resp = requests.get(f'{API_BASE}/messages/pending?username={username}', timeout=3)
+            if resp.status_code == 200:
+                for m in resp.json():
+                    self.send_msg(sock, {
+                        'type': 'private_message',
+                        'sender': m['sender'],
+                        'content': m['content'],
+                        'content_type': m.get('content_type', 'text'),
+                        'filename': m.get('filename'),
+                        'timestamp': m.get('timestamp', ''),
+                        'offline_queued': True,
+                    })
+        except Exception:
+            pass  # non-fatal
+
     def udp_receive_loop(self):
         while self.running:
             try:
@@ -226,6 +247,9 @@ class ChatServer:
             'end_call': self._handle_end_call,
             # 'call_media' removed — handled by UDP loop only (fix BUG-4)
             'forward_message': self._handle_forward_message,
+            'read_receipt': self._handle_read_receipt,
+            'delete_message': self._handle_delete_message,
+            'reaction': self._handle_reaction,
         }
         
         handler = handlers.get(t)
@@ -246,6 +270,17 @@ class ChatServer:
     def _handle_private_message(self, sender: str, msg: dict):
         recv = msg.get('receiver')
         if recv not in self.clients:
+            # Recipient offline — queue via API
+            try:
+                requests.post(f'{API_BASE}/messages/store', json={
+                    'sender_username': sender,
+                    'receiver_username': recv,
+                    'content': msg.get('content', ''),
+                    'content_type': msg.get('content_type', 'text'),
+                    'filename': msg.get('filename'),
+                }, timeout=2)
+            except Exception:
+                pass  # non-fatal — best effort queue
             return
         out = self._message_payload(sender, msg)
         out.update({'type': 'private_message', 'receiver': recv})
@@ -392,6 +427,34 @@ class ChatServer:
                 'sender': sender,
                 'media_type': msg.get('media_type'),
                 'data': msg.get('data')
+            })
+
+    def _handle_read_receipt(self, sender: str, msg: dict):
+        recv = msg.get('receiver')
+        if recv and recv in self.clients:
+            self.send_msg(self.clients[recv]['socket'], {
+                'type': 'read_receipt',
+                'from': sender,
+                'message_id': msg.get('message_id'),
+            })
+
+    def _handle_delete_message(self, sender: str, msg: dict):
+        recv = msg.get('receiver')
+        if recv and recv in self.clients:
+            self.send_msg(self.clients[recv]['socket'], {
+                'type': 'delete_message',
+                'from': sender,
+                'message_id': msg.get('message_id'),
+            })
+
+    def _handle_reaction(self, sender: str, msg: dict):
+        recv = msg.get('receiver')
+        if recv and recv in self.clients:
+            self.send_msg(self.clients[recv]['socket'], {
+                'type': 'reaction',
+                'from': sender,
+                'message_id': msg.get('message_id'),
+                'emoji': msg.get('emoji'),
             })
 
     def _handle_forward_message(self, sender: str, msg: dict):

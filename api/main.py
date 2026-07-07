@@ -123,3 +123,84 @@ def add_friend(user_id: int, target_identifier: str, by_qr: bool = False, db: Se
     db.add(new_friendship)
     db.commit()
     return {"message": f"Friend request sent to {target_user.username}"}
+
+@app.get("/api/friends")
+def get_friends(user_id: int, db: Session = Depends(database.get_db)):
+    friendships = db.query(models.Friendship).filter(
+        (models.Friendship.user_id == user_id) | (models.Friendship.friend_id == user_id)
+    ).all()
+
+    pending, accepted = [], []
+    for f in friendships:
+        user = db.query(models.User).filter(models.User.id == f.user_id).first()
+        friend = db.query(models.User).filter(models.User.id == f.friend_id).first()
+        entry = {
+            'id': f.id,
+            'user_id': f.user_id,
+            'friend_id': f.friend_id,
+            'status': f.status,
+            'user_username': user.username if user else None,
+            'friend_username': friend.username if friend else None,
+        }
+        if f.status == 'pending':
+            pending.append(entry)
+        elif f.status == 'accepted':
+            accepted.append(entry)
+    return {'pending': pending, 'accepted': accepted}
+
+@app.patch("/api/friends/{friendship_id}")
+def respond_to_friend(friendship_id: int, action: str, user_id: int, db: Session = Depends(database.get_db)):
+    friendship = db.query(models.Friendship).filter(models.Friendship.id == friendship_id).first()
+    if not friendship:
+        raise HTTPException(status_code=404, detail="Friendship not found")
+    if friendship.friend_id != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to respond to this request")
+    if action == 'accept':
+        friendship.status = 'accepted'
+        db.commit()
+        return {"message": "Friend request accepted"}
+    elif action == 'reject':
+        db.delete(friendship)
+        db.commit()
+        return {"message": "Friend request rejected"}
+    raise HTTPException(status_code=400, detail="Invalid action — use 'accept' or 'reject'")
+
+# ── Offline message queue ──────────────────────────────────────────────────────
+
+class OfflineMessageIn(BaseModel):
+    sender_username: str
+    receiver_username: str
+    content: str
+    content_type: str = "text"
+    filename: str | None = None
+
+@app.post("/api/messages/store")
+def store_offline_message(msg: OfflineMessageIn, db: Session = Depends(database.get_db)):
+    """Called by the TCP server when the recipient is offline."""
+    new_msg = models.OfflineMessage(
+        sender_username=msg.sender_username,
+        receiver_username=msg.receiver_username,
+        content=msg.content,
+        content_type=msg.content_type,
+        filename=msg.filename,
+    )
+    db.add(new_msg)
+    db.commit()
+    return {"message": "Stored"}
+
+@app.get("/api/messages/pending")
+def get_pending_messages(username: str, db: Session = Depends(database.get_db)):
+    """Called by the client on login to retrieve queued offline messages."""
+    msgs = db.query(models.OfflineMessage).filter(
+        models.OfflineMessage.receiver_username == username,
+        models.OfflineMessage.delivered == False  # noqa: E712
+    ).order_by(models.OfflineMessage.created_at).all()
+    result = [{'id': m.id, 'sender': m.sender_username, 'content': m.content,
+               'content_type': m.content_type, 'filename': m.filename,
+               'timestamp': m.created_at.isoformat()} for m in msgs]
+    # Mark all as delivered
+    for m in msgs:
+        m.delivered = True
+    db.commit()
+    return result
+
