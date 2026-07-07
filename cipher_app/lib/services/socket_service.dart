@@ -97,5 +97,6 @@ class SocketService {
   void disconnect() {
     _socket?.destroy();
     _socket = null;
+    _messageController.close(); // ponytail: fix BUG-7, close stream to prevent leak
   }
 }

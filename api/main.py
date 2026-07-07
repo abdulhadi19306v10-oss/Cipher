@@ -1,18 +1,15 @@
 from fastapi import FastAPI, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
-from passlib.context import CryptContext
 import uuid
-from typing import List, Optional
-import time
+import bcrypt  # ponytail: fix SEC-2, passlib removed — bcrypt used directly
+from datetime import datetime, timezone, timedelta
 
 from . import models, database
 
 models.Base.metadata.create_all(bind=database.engine)
 
 app = FastAPI(title="Cipher API", description="Backend authentication and matching for Cipher App")
-
-import bcrypt
 
 # Pydantic Schemas
 class UserCreate(BaseModel):
@@ -34,10 +31,6 @@ class LoginRequest(BaseModel):
     email: EmailStr
     password: str
 
-# Simple In-Memory Rate Limiter for IPs (to prevent basic alt-spam)
-ip_registration_tracker = {}
-RATE_LIMIT_SECONDS = 3600 # 1 hour between registrations per IP
-
 def get_password_hash(password: str) -> str:
     salt = bcrypt.gensalt()
     hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
@@ -46,23 +39,21 @@ def get_password_hash(password: str) -> str:
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
 
-def check_rate_limit(ip_address: str):
-    current_time = time.time()
-    if ip_address in ip_registration_tracker:
-        last_reg_time = ip_registration_tracker[ip_address]
-        if current_time - last_reg_time < RATE_LIMIT_SECONDS:
-            raise HTTPException(
-                status_code=429, 
-                detail="Too many registrations from this IP. Anti-alt measure active."
-            )
-    ip_registration_tracker[ip_address] = current_time
+def check_rate_limit(ip_address: str, db: Session):
+    # ponytail: fix SEC-3 — DB-level check survives restarts
+    recent = db.query(models.User).filter(
+        models.User.registered_ip == ip_address,
+        models.User.created_at > datetime.now(timezone.utc) - timedelta(hours=1)
+    ).first()
+    if recent:
+        raise HTTPException(status_code=429, detail="Too many registrations from this IP. Anti-alt measure active.")
 
 @app.post("/api/register", response_model=UserResponse)
 def register(user: UserCreate, request: Request, db: Session = Depends(database.get_db)):
     client_ip = request.client.host if request.client else "127.0.0.1"
     
     # 1. Check Rate Limit (Anti-Alt)
-    check_rate_limit(client_ip)
+    check_rate_limit(client_ip, db)
     
     # 2. Check if Email or Username exists
     db_user = db.query(models.User).filter(
@@ -100,6 +91,8 @@ def login(creds: LoginRequest, db: Session = Depends(database.get_db)):
     user = db.query(models.User).filter(models.User.email == creds.email).first()
     if not user or not verify_password(creds.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid email or password")
+    if not user.is_active:  # ponytail: fix SEC-5
+        raise HTTPException(status_code=403, detail="Account is deactivated")
     return user
 
 @app.post("/api/add_friend")

@@ -14,6 +14,7 @@ class QRScannerScreen extends StatefulWidget {
 class _QRScannerScreenState extends State<QRScannerScreen> {
   String? myQrCode;
   int? myUserId;
+  bool _isProcessing = false; // ponytail: fix BUG-3, prevent double-trigger
 
   @override
   void initState() {
@@ -30,11 +31,19 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
   }
 
   void _onDetect(BarcodeCapture capture) async {
-    final List<Barcode> barcodes = capture.barcodes;
-    for (final barcode in barcodes) {
-      if (barcode.rawValue != null && barcode.rawValue!.startsWith('cipher-qr-')) {
-        // Send add friend request
-        // Pause scanner conceptually or handle single trigger
+    if (_isProcessing) return;
+    for (final barcode in capture.barcodes) {
+      final val = barcode.rawValue;
+      if (val != null && val.startsWith('cipher-qr-') && myUserId != null) {
+        setState(() => _isProcessing = true);
+        final result = await ApiService.addFriendByQr(myUserId!, val);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(result['success'] ? 'Friend request sent!' : (result['message'] ?? 'Error'))),
+          );
+          Navigator.pop(context);
+        }
+        return; // stop after first valid code
       }
     }
   }

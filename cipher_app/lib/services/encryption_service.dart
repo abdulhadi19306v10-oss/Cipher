@@ -1,5 +1,5 @@
 import 'package:encrypt/encrypt.dart' as enc;
-import 'package:pointycastle/asymmetric/api.dart';
+// ponytail: fix DEAD-2 — pointycastle removed until RSA is actually implemented
 
 class EncryptionService {
   // Singleton pattern
@@ -11,7 +11,7 @@ class EncryptionService {
   // This is a foundational setup for Phase 4 E2EE.
   
   enc.Key? _sessionAesKey;
-  final _iv = enc.IV.fromLength(16);
+  // ponytail: fix BUG-8 — no static IV; random IV generated per message
 
   /// Generates a new random AES key for a chat session.
   void generateSessionKey() {
@@ -23,24 +23,27 @@ class EncryptionService {
     _sessionAesKey = enc.Key.fromBase64(base64Key);
   }
 
-  /// Encrypts a plaintext message string.
+  /// Encrypts a plaintext message string. Returns 'ivBase64:ciphertextBase64'.
   String encryptMessage(String plainText) {
     if (_sessionAesKey == null) {
       throw Exception('Session AES key is not set. Cannot encrypt.');
     }
+    final iv = enc.IV.fromSecureRandom(16); // ponytail: fix BUG-8 — random IV per message
     final encrypter = enc.Encrypter(enc.AES(_sessionAesKey!));
-    final encrypted = encrypter.encrypt(plainText, iv: _iv);
-    return encrypted.base64;
+    final encrypted = encrypter.encrypt(plainText, iv: iv);
+    return '${iv.base64}:${encrypted.base64}';
   }
 
-  /// Decrypts a base64 encoded encrypted message string.
-  String decryptMessage(String encryptedBase64) {
+  /// Decrypts a message string in 'ivBase64:ciphertextBase64' format.
+  String decryptMessage(String encryptedPayload) {
     if (_sessionAesKey == null) {
       throw Exception('Session AES key is not set. Cannot decrypt.');
     }
+    final parts = encryptedPayload.split(':');
+    if (parts.length != 2) throw Exception('Invalid encrypted payload format.');
+    final iv = enc.IV.fromBase64(parts[0]); // ponytail: fix BUG-8 — extract IV from payload
     final encrypter = enc.Encrypter(enc.AES(_sessionAesKey!));
-    final decrypted = encrypter.decrypt64(encryptedBase64, iv: _iv);
-    return decrypted;
+    return encrypter.decrypt64(parts[1], iv: iv);
   }
 
   // NOTE: In a full production scenario, each client generates an RSA keypair on login.

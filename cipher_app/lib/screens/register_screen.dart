@@ -25,8 +25,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
     setState(() => _isLoading = false);
 
     if (result['success']) {
-      Navigator.pushReplacementNamed(context, '/home');
+      // ponytail: fix BUG-6 — snackbar before navigation, context valid here
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Registration Successful! QR Code generated.')));
+      Navigator.pushReplacementNamed(context, '/home');
     } else {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(result['message'] ?? 'Error registering')));
     }

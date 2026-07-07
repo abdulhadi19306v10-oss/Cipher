@@ -26,6 +26,7 @@ class ChatServer:
         # Increase UDP buffers for video datagrams
         self.udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1024 * 1024)
         self.udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1024 * 1024)
+        self.udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # ponytail: fix BUG-1, must set before bind
         self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         
         self.clients: Dict[str, dict] = {}
@@ -48,7 +49,7 @@ class ChatServer:
                 return path
             except:
                 continue
-        return None
+        raise RuntimeError("Cannot create data directory in any location")  # ponytail: fix BUG-2, never return None
         
     def start(self):
         try:
@@ -223,7 +224,7 @@ class ChatServer:
             'video_call': self._handle_start_call,
             'call_response': self._handle_call_response,
             'end_call': self._handle_end_call,
-            'call_media': self._handle_call_media,
+            # 'call_media' removed — handled by UDP loop only (fix BUG-4)
             'forward_message': self._handle_forward_message,
         }
         

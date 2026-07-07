@@ -61,4 +61,20 @@ class ApiService {
     await prefs.setString('username', username);
     await prefs.setString('qr_code', qrCode);
   }
+
+  // ponytail: fix BUG-3 — this was missing, QR scanner calls it
+  static Future<Map<String, dynamic>> addFriendByQr(int userId, String qrValue) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/add_friend?user_id=$userId&target_identifier=${Uri.encodeComponent(qrValue)}&by_qr=true'),
+      );
+      if (response.statusCode == 200) {
+        return {'success': true};
+      } else {
+        return {'success': false, 'message': jsonDecode(response.body)['detail']};
+      }
+    } catch (e) {
+      return {'success': false, 'message': 'Network Error: Cannot connect to server.'};
+    }
+  }
 }

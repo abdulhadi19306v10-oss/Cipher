@@ -64,6 +64,8 @@ class _HomeScreenState extends State<HomeScreen> {
   ];
 
   List<Map<String, dynamic>> get _filteredChats {
+    // ponytail: fix BUG-5 — only filter when username is loaded
+    if (_myUsername.isEmpty) return allDummyChats;
     return allDummyChats.where((chat) => chat['name'] != _myUsername).toList();
   }
 
