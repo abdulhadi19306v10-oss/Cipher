@@ -28,6 +28,13 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadUsername();
   }
 
+  @override
+  void dispose() {
+    _chatController.dispose(); // ponytail: fix — prevent controller memory leak
+    _scrollController.dispose();
+    super.dispose();
+  }
+
   void _loadUsername() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
@@ -149,7 +156,10 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildServerIcon(dynamic content, int index, {bool isIcon = false}) {
     bool isSelected = _selectedServerIndex == index;
     return GestureDetector(
-      onTap: () => setState(() => _selectedServerIndex = index),
+      onTap: () => setState(() {
+        _selectedServerIndex = index;
+        _selectedChatIndex = -1; // ponytail: fix — reset chat when switching servers
+      }),
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
         child: Container(

@@ -39,11 +39,12 @@ class EncryptionService {
     if (_sessionAesKey == null) {
       throw Exception('Session AES key is not set. Cannot decrypt.');
     }
-    final parts = encryptedPayload.split(':');
-    if (parts.length != 2) throw Exception('Invalid encrypted payload format.');
-    final iv = enc.IV.fromBase64(parts[0]); // ponytail: fix BUG-8 — extract IV from payload
+    final colonIdx = encryptedPayload.indexOf(':');
+    // ponytail: fix — guard against malformed payload (no colon = not our format)
+    if (colonIdx == -1) throw Exception('Invalid encrypted payload: missing IV separator.');
+    final iv = enc.IV.fromBase64(encryptedPayload.substring(0, colonIdx));
     final encrypter = enc.Encrypter(enc.AES(_sessionAesKey!));
-    return encrypter.decrypt64(parts[1], iv: iv);
+    return encrypter.decrypt64(encryptedPayload.substring(colonIdx + 1), iv: iv);
   }
 
   // NOTE: In a full production scenario, each client generates an RSA keypair on login.

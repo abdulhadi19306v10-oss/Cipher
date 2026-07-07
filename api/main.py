@@ -40,10 +40,11 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
 
 def check_rate_limit(ip_address: str, db: Session):
-    # ponytail: fix SEC-3 — DB-level check survives restarts
+    # ponytail: DB-level check survives restarts; naive UTC for SQLite compat
+    one_hour_ago = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=1)
     recent = db.query(models.User).filter(
         models.User.registered_ip == ip_address,
-        models.User.created_at > datetime.now(timezone.utc) - timedelta(hours=1)
+        models.User.created_at > one_hour_ago
     ).first()
     if recent:
         raise HTTPException(status_code=429, detail="Too many registrations from this IP. Anti-alt measure active.")

@@ -36,14 +36,19 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
       final val = barcode.rawValue;
       if (val != null && val.startsWith('cipher-qr-') && myUserId != null) {
         setState(() => _isProcessing = true);
-        final result = await ApiService.addFriendByQr(myUserId!, val);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(result['success'] ? 'Friend request sent!' : (result['message'] ?? 'Error'))),
-          );
-          Navigator.pop(context);
+        try {
+          final result = await ApiService.addFriendByQr(myUserId!, val);
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(result['success'] ? 'Friend request sent!' : (result['message'] ?? 'Error'))),
+            );
+            Navigator.pop(context);
+          }
+        } catch (e) {
+          // ponytail: fix — reset on error so scanner isn't permanently frozen
+          if (mounted) setState(() => _isProcessing = false);
         }
-        return; // stop after first valid code
+        return;
       }
     }
   }

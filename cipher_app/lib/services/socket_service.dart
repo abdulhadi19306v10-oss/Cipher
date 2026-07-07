@@ -10,7 +10,7 @@ class SocketService {
   SocketService._internal();
 
   Socket? _socket;
-  final StreamController<Map<String, dynamic>> _messageController = StreamController.broadcast();
+  StreamController<Map<String, dynamic>> _messageController = StreamController.broadcast();
   
   Stream<Map<String, dynamic>> get messageStream => _messageController.stream;
 
@@ -22,6 +22,10 @@ class SocketService {
 
   Future<void> connect(String username) async {
     try {
+      // ponytail: fix — recreate controller if closed (after a previous disconnect)
+      if (_messageController.isClosed) {
+        _messageController = StreamController.broadcast();
+      }
       _socket = await Socket.connect(_host, _port);
       print('Connected to Cipher TCP Server');
 
