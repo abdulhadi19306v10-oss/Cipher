@@ -12,6 +12,7 @@ class User(Base):
     hashed_password = Column(String(255), nullable=False)
     qr_code_string = Column(String(100), unique=True, index=True, nullable=False)
     fcm_token = Column(String(512), nullable=True)  # ponytail: Phase 5 push token
+    public_key = Column(Text, nullable=True)  # ponytail: Phase 7 E2EE public key
     
     # Anti-alt metadata
     registered_ip = Column(String(50))
