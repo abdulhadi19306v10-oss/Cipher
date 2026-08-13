@@ -5,7 +5,7 @@ import uuid
 import bcrypt  # ponytail: fix SEC-2, passlib removed — bcrypt used directly
 from datetime import datetime, timezone, timedelta
 
-from . import models, database
+from . import models, database, auth
 
 models.Base.metadata.create_all(bind=database.engine)
 
@@ -23,6 +23,7 @@ class UserResponse(BaseModel):
     username: str
     email: str
     qr_code_string: str
+    access_token: str | None = None
     
     class Config:
         from_attributes = True # Fixed V2 pydantic warning
@@ -85,6 +86,8 @@ def register(user: UserCreate, request: Request, db: Session = Depends(database.
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
+    # ponytail: generate JWT token on registration
+    new_user.access_token = auth.create_access_token(new_user.id)
     return new_user
 
 @app.post("/api/login", response_model=UserResponse)
@@ -94,10 +97,13 @@ def login(creds: LoginRequest, db: Session = Depends(database.get_db)):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     if not user.is_active:  # ponytail: fix SEC-5
         raise HTTPException(status_code=403, detail="Account is deactivated")
+    # ponytail: generate JWT token on login
+    user.access_token = auth.create_access_token(user.id)
     return user
 
 @app.post("/api/add_friend")
-def add_friend(user_id: int, target_identifier: str, by_qr: bool = False, db: Session = Depends(database.get_db)):
+def add_friend(target_identifier: str, by_qr: bool = False, current_user: models.User = Depends(auth.get_current_user), db: Session = Depends(database.get_db)):
+    user_id = current_user.id
     # target_identifier can be a username or a QR code string
     if by_qr:
         target_user = db.query(models.User).filter(models.User.qr_code_string == target_identifier).first()
@@ -125,7 +131,8 @@ def add_friend(user_id: int, target_identifier: str, by_qr: bool = False, db: Se
     return {"message": f"Friend request sent to {target_user.username}"}
 
 @app.get("/api/friends")
-def get_friends(user_id: int, db: Session = Depends(database.get_db)):
+def get_friends(current_user: models.User = Depends(auth.get_current_user), db: Session = Depends(database.get_db)):
+    user_id = current_user.id
     friendships = db.query(models.Friendship).filter(
         (models.Friendship.user_id == user_id) | (models.Friendship.friend_id == user_id)
     ).all()
@@ -149,7 +156,8 @@ def get_friends(user_id: int, db: Session = Depends(database.get_db)):
     return {'pending': pending, 'accepted': accepted}
 
 @app.patch("/api/friends/{friendship_id}")
-def respond_to_friend(friendship_id: int, action: str, user_id: int, db: Session = Depends(database.get_db)):
+def respond_to_friend(friendship_id: int, action: str, current_user: models.User = Depends(auth.get_current_user), db: Session = Depends(database.get_db)):
+    user_id = current_user.id
     friendship = db.query(models.Friendship).filter(models.Friendship.id == friendship_id).first()
     if not friendship:
         raise HTTPException(status_code=404, detail="Friendship not found")
@@ -192,9 +200,9 @@ def store_offline_message(msg: OfflineMessageIn, db: Session = Depends(database.
     return {"message": "Stored", "fcm_token": fcm_token}
 
 @app.post("/api/users/fcm_token")
-def update_fcm_token(user_id: int, fcm_token: str, db: Session = Depends(database.get_db)):
+def update_fcm_token(fcm_token: str, current_user: models.User = Depends(auth.get_current_user), db: Session = Depends(database.get_db)):
     """Update user's FCM token for push notifications."""
-    user = db.query(models.User).filter(models.User.id == user_id).first()
+    user = current_user
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     user.fcm_token = fcm_token
