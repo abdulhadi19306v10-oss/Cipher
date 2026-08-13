@@ -12,3 +12,4 @@ qrcode>=7.4.2
 pydantic[email]>=2.3.0
 requests>=2.31.0
 firebase-admin>=6.2.0
+pyjwt>=2.8.0
