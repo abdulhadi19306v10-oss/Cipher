@@ -154,5 +154,37 @@ class ApiService {
       return {'success': false, 'message': 'Network Error: Cannot connect to server.'};
     }
   }
+
+  // ponytail: Phase 7 RSA E2EE public key upload
+  static Future<Map<String, dynamic>> uploadPublicKey(int userId, String publicKey) async {
+    try {
+      final headers = await _getHeaders();
+      final response = await http.post(
+        Uri.parse('$baseUrl/users/public_key?public_key=${Uri.encodeComponent(publicKey)}'),
+        headers: headers,
+      );
+      if (response.statusCode == 200) {
+        return {'success': true};
+      } else {
+        return {'success': false, 'message': jsonDecode(response.body)['detail']};
+      }
+    } catch (e) {
+      return {'success': false, 'message': 'Network Error: Cannot connect to server.'};
+    }
+  }
+
+  // ponytail: Phase 7 RSA E2EE fetch peer's public key
+  static Future<String?> getPublicKey(String username) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/users/${Uri.encodeComponent(username)}/public_key'),
+      );
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return data['public_key'] as String?;
+      }
+    } catch (_) {}
+    return null;
+  }
 }
 
