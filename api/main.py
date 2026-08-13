@@ -209,6 +209,22 @@ def update_fcm_token(fcm_token: str, current_user: models.User = Depends(auth.ge
     db.commit()
     return {"message": "FCM token updated successfully"}
 
+@app.post("/api/users/public_key")
+def upload_public_key(public_key: str, current_user: models.User = Depends(auth.get_current_user), db: Session = Depends(database.get_db)):
+    """Upload or update user's RSA public key."""
+    current_user.public_key = public_key
+    db.commit()
+    return {"message": "Public key updated successfully"}
+
+@app.get("/api/users/{username}/public_key")
+def get_public_key(username: str, db: Session = Depends(database.get_db)):
+    """Fetch another user's RSA public key."""
+    user = db.query(models.User).filter(models.User.username == username).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"public_key": user.public_key}
+
+
 @app.get("/api/messages/pending")
 def get_pending_messages(username: str, db: Session = Depends(database.get_db)):
     """Called by the client on login to retrieve queued offline messages."""
