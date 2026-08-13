@@ -1,54 +1,120 @@
+import 'dart:convert';
+import 'dart:math';
+import 'dart:typed_data';
 import 'package:encrypt/encrypt.dart' as enc;
-// ponytail: fix DEAD-2 — pointycastle removed until RSA is actually implemented
+import 'package:pointycastle/asymmetric/api.dart';
+import 'package:pointycastle/key_generators/api.dart';
+import 'package:pointycastle/key_generators/rsa_key_generator.dart';
+import 'package:pointycastle/random/fortuna_random.dart';
+import 'package:pointycastle/api.dart' show KeyParameter, ParametersWithRandom;
 
 class EncryptionService {
-  // Singleton pattern
   static final EncryptionService _instance = EncryptionService._internal();
   factory EncryptionService() => _instance;
   EncryptionService._internal();
 
-  // For E2EE, we use AES for message payloads, and RSA to securely exchange the AES key.
-  // This is a foundational setup for Phase 4 E2EE.
+  // ponytail: Map to hold AES session keys per username
+  final Map<String, enc.Key> _sessionKeys = {};
   
-  enc.Key? _sessionAesKey;
-  // ponytail: fix BUG-8 — no static IV; random IV generated per message
+  RSAPrivateKey? _myPrivateKey;
+  RSAPublicKey? _myPublicKey;
 
-  /// Generates a new random AES key for a chat session.
-  void generateSessionKey() {
-    _sessionAesKey = enc.Key.fromSecureRandom(32); // 256-bit AES
+  /// Generates our ephemeral RSA-2048 keypair.
+  void generateRsaKeyPair() {
+    final keyGen = RSAKeyGenerator();
+    final secureRandom = FortunaRandom();
+    final random = Random.secure();
+    final seeds = List<int>.generate(32, (_) => random.nextInt(256));
+    secureRandom.seed(KeyParameter(Uint8List.fromList(seeds)));
+    
+    keyGen.init(ParametersWithRandom(
+      RSAKeyGeneratorParameters(BigInt.parse('65537'), 2048, 64),
+      secureRandom
+    ));
+    
+    final pair = keyGen.generateKeyPair();
+    _myPublicKey = pair.publicKey as RSAPublicKey;
+    _myPrivateKey = pair.privateKey as RSAPrivateKey;
+  }
+
+  /// Serializes our public key as a simple JSON string to bypass DER/ASN.1 packaging boilerplate.
+  String? getMyPublicKeyString() {
+    if (_myPublicKey == null) return null;
+    return jsonEncode({
+      'modulus': _myPublicKey!.modulus.toString(),
+      'exponent': _myPublicKey!.publicExponent.toString(),
+    });
+  }
+
+  /// Parses public key from modulus/exponent JSON string.
+  RSAPublicKey parsePublicKey(String keyStr) {
+    final data = jsonDecode(keyStr);
+    return RSAPublicKey(
+      BigInt.parse(data['modulus']),
+      BigInt.parse(data['exponent']),
+    );
+  }
+
+  /// Generates a new random AES session key for a chat session.
+  void generateSessionKey(String username) {
+    _sessionKeys[username] = enc.Key.fromSecureRandom(32); // 256-bit AES
   }
 
   /// Sets an AES key received securely from a peer.
-  void setSessionKey(String base64Key) {
-    _sessionAesKey = enc.Key.fromBase64(base64Key);
+  void setSessionKey(String username, String base64Key) {
+    _sessionKeys[username] = enc.Key.fromBase64(base64Key);
   }
 
-  /// Encrypts a plaintext message string. Returns 'ivBase64:ciphertextBase64'.
-  String encryptMessage(String plainText) {
-    if (_sessionAesKey == null) {
-      throw Exception('Session AES key is not set. Cannot encrypt.');
+  /// Returns true if a session AES key is negotiated for this username.
+  bool hasSessionKey(String username) {
+    return _sessionKeys.containsKey(username);
+  }
+
+  /// Retrieves the base64 AES session key for a peer (to encrypt for them).
+  String? getSessionKeyBase64(String username) {
+    return _sessionKeys[username]?.base64;
+  }
+
+  /// Encrypts the local AES key with peer's RSA public key.
+  String encryptSessionKey(String username, String peerPublicKeyStr) {
+    final key = _sessionKeys[username];
+    if (key == null) throw Exception('No session key generated for $username');
+    final peerPublicKey = parsePublicKey(peerPublicKeyStr);
+    final encrypter = enc.Encrypter(enc.RSA(publicKey: peerPublicKey));
+    final encrypted = encrypter.encrypt(key.base64);
+    return encrypted.base64;
+  }
+
+  /// Decrypts an AES session key with our RSA private key and stores it.
+  void decryptAndSetSessionKey(String username, String encryptedSessionKeyBase64) {
+    if (_myPrivateKey == null) throw Exception('RSA private key is not generated.');
+    final encrypter = enc.Encrypter(enc.RSA(privateKey: _myPrivateKey!));
+    final decryptedKeyBase64 = encrypter.decrypt(enc.Encrypted.fromBase64(encryptedSessionKeyBase64));
+    setSessionKey(username, decryptedKeyBase64);
+  }
+
+  /// Encrypts a private message using the peer's AES session key.
+  String encryptMessage(String username, String plainText) {
+    final key = _sessionKeys[username];
+    if (key == null) {
+      throw Exception('Session AES key is not set for $username. Cannot encrypt.');
     }
-    final iv = enc.IV.fromSecureRandom(16); // ponytail: fix BUG-8 — random IV per message
-    final encrypter = enc.Encrypter(enc.AES(_sessionAesKey!));
+    final iv = enc.IV.fromSecureRandom(16);
+    final encrypter = enc.Encrypter(enc.AES(key));
     final encrypted = encrypter.encrypt(plainText, iv: iv);
     return '${iv.base64}:${encrypted.base64}';
   }
 
-  /// Decrypts a message string in 'ivBase64:ciphertextBase64' format.
-  String decryptMessage(String encryptedPayload) {
-    if (_sessionAesKey == null) {
-      throw Exception('Session AES key is not set. Cannot decrypt.');
+  /// Decrypts a private message using the peer's AES session key.
+  String decryptMessage(String username, String encryptedPayload) {
+    final key = _sessionKeys[username];
+    if (key == null) {
+      throw Exception('Session AES key is not set for $username. Cannot decrypt.');
     }
     final colonIdx = encryptedPayload.indexOf(':');
-    // ponytail: fix — guard against malformed payload (no colon = not our format)
     if (colonIdx == -1) throw Exception('Invalid encrypted payload: missing IV separator.');
     final iv = enc.IV.fromBase64(encryptedPayload.substring(0, colonIdx));
-    final encrypter = enc.Encrypter(enc.AES(_sessionAesKey!));
+    final encrypter = enc.Encrypter(enc.AES(key));
     return encrypter.decrypt64(encryptedPayload.substring(colonIdx + 1), iv: iv);
   }
-
-  // NOTE: In a full production scenario, each client generates an RSA keypair on login.
-  // The public key is uploaded to the FastAPI backend.
-  // When User A wants to talk to User B, User A fetches B's RSA public key, 
-  // generates an AES key, encrypts the AES key with B's RSA public key, and sends it.
 }
