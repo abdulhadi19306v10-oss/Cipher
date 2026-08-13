@@ -5,6 +5,7 @@ import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:file_picker/file_picker.dart';
 import '../services/socket_service.dart';
 import '../services/api_service.dart';
+import '../services/encryption_service.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 
 
@@ -97,10 +98,26 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       _myUsername = username;
       _isReady = true;
     });
+
+    // ponytail: generate our E2EE RSA key pair on startup
+    EncryptionService().generateRsaKeyPair();
+
     await _socket.connect(username);
     _socketSub = _socket.messageStream.listen(_onSocketMessage);
     if (userId != null) {
       _setupFCM(userId);
+      _uploadPublicKey(userId);
+    }
+  }
+
+  void _uploadPublicKey(int userId) async {
+    try {
+      final pubKeyStr = EncryptionService().getMyPublicKeyString();
+      if (pubKeyStr != null) {
+        await ApiService.uploadPublicKey(userId, pubKeyStr);
+      }
+    } catch (e) {
+      debugPrint("Failed to upload public key: $e");
     }
   }
 
@@ -137,17 +154,38 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     } else if (type == 'private_message') {
       final sender = msg['sender'] as String?;
       final content = msg['content'] as String? ?? '';
+      final contentType = msg['content_type'] as String? ?? 'text';
       if (sender != null) {
+        if (contentType == 'key_exchange') {
+          // ponytail: decrypt and register AES session key from peer
+          try {
+            EncryptionService().decryptAndSetSessionKey(sender, content);
+          } catch (e) {
+            debugPrint("Failed to decrypt E2EE session key: $e");
+          }
+          return;
+        }
+
+        String displayText = content;
+        if (EncryptionService().hasSessionKey(sender)) {
+          // ponytail: decrypt E2EE private message content
+          try {
+            displayText = EncryptionService().decryptMessage(sender, content);
+          } catch (e) {
+            debugPrint("E2EE decrypt failed: $e");
+          }
+        }
+
         final chatIdx = allDummyChats.indexWhere((c) => c['name'] == sender);
         if (chatIdx != -1) {
           setState(() {
             allDummyChats[chatIdx]['messages'].add({
-              'text': content,
+              'text': displayText,
               'isMe': false,
               'file': msg['filename'],
               'read': false,
               'reactions': <String>[],
-              'id': 'r_${DateTime.now().millisecondsSinceEpoch}',
+              'id': msg['message_id'] ?? 'r_${DateTime.now().millisecondsSinceEpoch}',
             });
           });
           _scrollToBottom();
@@ -272,10 +310,20 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       if (_isEmojiVisible) _isEmojiVisible = false;
     });
 
+    // ponytail: encrypt content if E2EE session key is active
+    String contentToSend = text;
+    if (EncryptionService().hasSessionKey(targetName)) {
+      try {
+        contentToSend = EncryptionService().encryptMessage(targetName, text);
+      } catch (e) {
+        debugPrint("E2EE encrypt failed: $e");
+      }
+    }
+
     _socket.sendMessage({
       'type': 'private_message',
       'receiver': targetName,
-      'content': text,
+      'content': contentToSend,
       'content_type': _selectedFileName != null ? 'file' : 'text',
       'filename': _selectedFileName,
     });
@@ -527,6 +575,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     onTap: () {
                       setState(() => _selectedChatIndex = i);
                       _markMessagesRead(chatName);
+                      _negotiateE2eeSessionKey(chatName);
                     },
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                   ),
@@ -537,6 +586,25 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         ],
       ),
     );
+  }
+
+  void _negotiateE2eeSessionKey(String peerName) async {
+    // ponytail: negotiate E2EE session key with peer
+    if (EncryptionService().hasSessionKey(peerName)) return;
+    try {
+      final peerPublicKey = await ApiService.getPublicKey(peerName);
+      if (peerPublicKey == null) return;
+      EncryptionService().generateSessionKey(peerName);
+      final encryptedKey = EncryptionService().encryptSessionKey(peerName, peerPublicKey);
+      _socket.sendMessage({
+        'type': 'private_message',
+        'receiver': peerName,
+        'content': encryptedKey,
+        'content_type': 'key_exchange',
+      });
+    } catch (e) {
+      debugPrint("E2EE key exchange failed: $e");
+    }
   }
 
   Widget _buildTypingIndicator() {
