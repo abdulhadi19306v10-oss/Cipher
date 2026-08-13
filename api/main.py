@@ -185,8 +185,21 @@ def store_offline_message(msg: OfflineMessageIn, db: Session = Depends(database.
         filename=msg.filename,
     )
     db.add(new_msg)
+    # ponytail: retrieve receiver's FCM token for push notification
+    receiver = db.query(models.User).filter(models.User.username == msg.receiver_username).first()
+    fcm_token = receiver.fcm_token if receiver else None
     db.commit()
-    return {"message": "Stored"}
+    return {"message": "Stored", "fcm_token": fcm_token}
+
+@app.post("/api/users/fcm_token")
+def update_fcm_token(user_id: int, fcm_token: str, db: Session = Depends(database.get_db)):
+    """Update user's FCM token for push notifications."""
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.fcm_token = fcm_token
+    db.commit()
+    return {"message": "FCM token updated successfully"}
 
 @app.get("/api/messages/pending")
 def get_pending_messages(username: str, db: Session = Depends(database.get_db)):

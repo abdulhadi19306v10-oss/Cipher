@@ -113,5 +113,21 @@ class ApiService {
       );
     } catch (_) {}
   }
+
+  // ponytail: Phase 5 push notification fcm token register
+  static Future<Map<String, dynamic>> updateFcmToken(int userId, String fcmToken) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/users/fcm_token?user_id=$userId&fcm_token=${Uri.encodeComponent(fcmToken)}'),
+      );
+      if (response.statusCode == 200) {
+        return {'success': true};
+      } else {
+        return {'success': false, 'message': jsonDecode(response.body)['detail']};
+      }
+    } catch (e) {
+      return {'success': false, 'message': 'Network Error: Cannot connect to server.'};
+    }
+  }
 }
 

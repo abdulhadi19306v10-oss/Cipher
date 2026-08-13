@@ -11,6 +11,7 @@ class User(Base):
     email = Column(String(100), unique=True, index=True, nullable=False)
     hashed_password = Column(String(255), nullable=False)
     qr_code_string = Column(String(100), unique=True, index=True, nullable=False)
+    fcm_token = Column(String(512), nullable=True)  # ponytail: Phase 5 push token
     
     # Anti-alt metadata
     registered_ip = Column(String(50))

@@ -18,6 +18,8 @@ dependencies:
   # pointycastle removed — RSA not yet implemented (see encryption_service.dart)
   emoji_picker_flutter: ^4.4.0
   file_picker: ^8.0.0+1
+  firebase_core: ^2.24.0
+  firebase_messaging: ^14.7.10
 
 dev_dependencies:
   flutter_test:

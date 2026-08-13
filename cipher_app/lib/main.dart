@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'screens/login_screen.dart';
 import 'screens/register_screen.dart';
 import 'screens/home_screen.dart';
@@ -6,7 +7,14 @@ import 'screens/qr_scanner_screen.dart';
 import 'screens/call_screen.dart';
 import 'screens/friends_screen.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  try {
+    // ponytail: initialize firebase safely, fallback for local dev
+    await Firebase.initializeApp();
+  } catch (e) {
+    debugPrint("Firebase initialization failed: $e");
+  }
   runApp(const CipherApp());
 }
 

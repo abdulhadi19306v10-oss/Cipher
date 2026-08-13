@@ -15,6 +15,24 @@ from datetime import datetime
 from typing import Dict, List, Optional
 import struct
 
+# ponytail: Phase 5 push notifications integration
+firebase_initialized = False
+try:
+    import firebase_admin
+    from firebase_admin import credentials, messaging
+    key_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'firebase-key.json')
+    if os.path.exists(key_path):
+        cred = credentials.Certificate(key_path)
+        firebase_admin.initialize_app(cred)
+        firebase_initialized = True
+        print("[SERVER] Firebase Admin SDK initialized.")
+    else:
+        print("[SERVER] firebase-key.json not found. Push notifications will be disabled.")
+except ImportError:
+    print("[SERVER] firebase-admin package not installed. Push notifications will be disabled.")
+except Exception as e:
+    print(f"[SERVER] Failed to initialize Firebase: {e}")
+
 HOST = '0.0.0.0'
 PORT = 5000
 BUFFER_SIZE = 65536
@@ -272,13 +290,26 @@ class ChatServer:
         if recv not in self.clients:
             # Recipient offline — queue via API
             try:
-                requests.post(f'{API_BASE}/messages/store', json={
+                resp = requests.post(f'{API_BASE}/messages/store', json={
                     'sender_username': sender,
                     'receiver_username': recv,
                     'content': msg.get('content', ''),
                     'content_type': msg.get('content_type', 'text'),
                     'filename': msg.get('filename'),
                 }, timeout=2)
+                if resp.status_code == 200:
+                    fcm_token = resp.json().get('fcm_token')
+                    if fcm_token and firebase_initialized:
+                        # ponytail: Phase 5 push notification dispatch
+                        body_content = "Sent a file" if msg.get('content_type') != 'text' else msg.get('content', '')
+                        message = messaging.Message(
+                            notification=messaging.Notification(
+                                title=f"Message from {sender}",
+                                body=body_content,
+                            ),
+                            token=fcm_token,
+                        )
+                        messaging.send(message)
             except Exception:
                 pass  # non-fatal — best effort queue
             return

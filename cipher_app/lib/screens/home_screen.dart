@@ -4,6 +4,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:file_picker/file_picker.dart';
 import '../services/socket_service.dart';
+import '../services/api_service.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -89,12 +92,36 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   void _loadUsernameAndConnect() async {
     final prefs = await SharedPreferences.getInstance();
     final username = prefs.getString('username') ?? 'Unknown';
+    final userId = prefs.getInt('user_id');
     setState(() {
       _myUsername = username;
       _isReady = true;
     });
     await _socket.connect(username);
     _socketSub = _socket.messageStream.listen(_onSocketMessage);
+    if (userId != null) {
+      _setupFCM(userId);
+    }
+  }
+
+  void _setupFCM(int userId) async {
+    try {
+      final messaging = FirebaseMessaging.instance;
+      await messaging.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+      final token = await messaging.getToken();
+      if (token != null) {
+        await ApiService.updateFcmToken(userId, token);
+      }
+      messaging.onTokenRefresh.listen((newToken) async {
+        await ApiService.updateFcmToken(userId, newToken);
+      });
+    } catch (e) {
+      debugPrint("FCM registration failed: $e");
+    }
   }
 
   void _onSocketMessage(Map<String, dynamic> msg) {
